@@ -1,0 +1,17 @@
+# PenFight Arena v4 - Quick Setup
+# =====================================
+# 1. Install dependencies
+pip install -r requirements.txt
+
+# 2. Generate pen sprites (first time only)
+python generate_sprites.py
+
+# 3. (Optional) Add ngrok authtoken for online play
+#    Sign up free at https://ngrok.com
+#    ngrok config add-authtoken YOUR_TOKEN
+
+# 4. Run!
+python server.py
+
+# Then open: http://localhost:5000
+# Ngrok URL (if configured) prints automatically

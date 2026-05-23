@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>PenFight Arena</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body>
+
+<!-- ══ MENU ══════════════════════════════════════════════════════ -->
+<div id="screen-menu" class="screen active">
+  <div class="menu-bg">
+    <div class="fp" style="--d:0s;--x:8%;--y:18%;--r:15deg">🖊️</div>
+    <div class="fp" style="--d:.5s;--x:82%;--y:12%;--r:-20deg">🖋️</div>
+    <div class="fp" style="--d:1s;--x:12%;--y:78%;--r:35deg">✒️</div>
+    <div class="fp" style="--d:1.5s;--x:87%;--y:72%;--r:-10deg">🖍️</div>
+    <div class="fp" style="--d:.7s;--x:50%;--y:88%;--r:25deg">✏️</div>
+    <div class="fp" style="--d:2s;--x:4%;--y:50%;--r:-30deg">📌</div>
+  </div>
+  <div class="menu-content">
+    <div class="logo-wrap">
+      <h1 class="logo-title">PenFight</h1>
+      <span class="logo-sub">ARENA</span>
+      <div class="logo-tag">Best of 3 · 4 Maps · 6 Pen Types</div>
+    </div>
+    <div class="menu-card glass">
+      <div class="input-group">
+        <label>YOUR NAME</label>
+        <input type="text" id="input-name" placeholder="Enter your name" maxlength="20"/>
+      </div>
+      <div class="menu-buttons">
+        <button class="btn btn-primary" id="btn-create"><span>⚡</span> Create Room</button>
+        <div class="divider">or</div>
+        <div class="join-row">
+          <input type="text" id="input-code" placeholder="ROOM CODE" maxlength="4" class="code-input"/>
+          <button class="btn btn-secondary" id="btn-join">Join</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ LOBBY ══════════════════════════════════════════════════════ -->
+<div id="screen-lobby" class="screen">
+  <div class="lobby-wrap">
+    <div class="lobby-header glass">
+      <div class="room-code-display">
+        <span class="rc-label">ROOM</span>
+        <span id="lobby-code" class="rc-value">----</span>
+        <button class="btn-copy" id="btn-copy-code">📋</button>
+      </div>
+      <div id="lobby-status" class="lobby-status">Waiting for players…</div>
+    </div>
+
+    <div class="lobby-body">
+      <!-- Map selector -->
+      <div class="lobby-section glass" id="section-maps">
+        <h3 class="section-title">CHOOSE MAP <span id="host-only-badge" class="host-badge">HOST</span></h3>
+        <div class="map-grid" id="map-grid"></div>
+      </div>
+
+      <!-- Pen selector -->
+      <div class="lobby-section glass">
+        <h3 class="section-title">CHOOSE PEN</h3>
+        <div class="pen-grid" id="pen-grid"></div>
+      </div>
+
+      <!-- Players -->
+      <div class="lobby-section glass">
+        <h3 class="section-title">PLAYERS <span id="player-count">0/6</span></h3>
+        <ul class="player-list" id="player-list"></ul>
+      </div>
+    </div>
+
+    <div class="lobby-footer">
+      <div class="best-of-badge">⚔️ Best of 3 Rounds</div>
+      <button class="btn btn-start" id="btn-start" disabled>Start Game</button>
+      <div id="host-hint" class="hint">Waiting for host…</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ GAME ═══════════════════════════════════════════════════════ -->
+<div id="screen-game" class="screen">
+  <!-- Round / score banner -->
+  <div class="round-banner glass" id="round-banner">
+    <div class="round-info">
+      <span id="banner-round">Round 1</span>
+      <span class="banner-sep">·</span>
+      <span id="banner-map">Classic Table</span>
+    </div>
+    <div class="score-row" id="score-row"></div>
+  </div>
+
+  <div class="game-hud">
+    <div class="hud-left glass">
+      <div class="turn-label">TURN</div>
+      <div id="hud-turn-name" class="turn-name">—</div>
+      <div class="hud-map-tag" id="hud-map-tag">Classic</div>
+    </div>
+    <div class="hud-center">
+      <canvas id="game-canvas" width="800" height="600"></canvas>
+    </div>
+    <div class="hud-right glass">
+      <div class="section-title">ALIVE</div>
+      <ul id="hud-player-list" class="hud-players"></ul>
+    </div>
+  </div>
+
+  <div class="game-footer">
+    <button class="btn btn-skip hidden" id="btn-skip">⏭ Skip</button>
+    <div id="game-message" class="game-message"></div>
+  </div>
+</div>
+
+<!-- ══ ROUND OVER OVERLAY ════════════════════════════════════════ -->
+<div id="overlay-round" class="overlay hidden">
+  <div class="round-card glass">
+    <div class="round-emoji" id="round-emoji">🎯</div>
+    <h2 class="round-title" id="round-title">Round Over!</h2>
+    <div id="round-winner-name" class="round-winner"></div>
+    <div class="score-display" id="round-score-display"></div>
+    <div class="next-round-hint" id="next-round-hint">Next round starting…</div>
+  </div>
+</div>
+
+<!-- ══ MATCH OVER OVERLAY ════════════════════════════════════════ -->
+<div id="overlay-match" class="overlay hidden">
+  <div class="gameover-card glass">
+    <div class="gameover-emoji">🏆</div>
+    <h2 class="gameover-title">MATCH WINNER!</h2>
+    <div id="match-winner-name" class="gameover-winner"></div>
+    <div class="final-scores" id="final-scores"></div>
+    <div class="gameover-btns">
+      <button class="btn btn-primary btn-wide" id="btn-replay">Play Again</button>
+      <button class="btn btn-secondary btn-wide" id="btn-menu">Main Menu</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="/static/game.js"></script>
+</body>
+</html>
