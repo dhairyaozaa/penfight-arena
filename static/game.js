@@ -592,20 +592,81 @@ function drawPen(pen,pid,isActive){
     for(let i=0;i<w;i++){ctx.fillStyle='#f0c040';ctx.beginPath();ctx.arc(s.x+tw/2+12+i*11,labelY-8,3.5,0,Math.PI*2);ctx.fill();}
     ctx.restore();
   }
+
+  // Hit zone dots on MY active pen — show nib/mid/back positions
+  if(pid===myPlayerId && isActive && !isSimulating && !dragState?.active){
+    const pc=Math.cos(s.angle), ps=Math.sin(s.angle);
+    const hl=pen.width/2;
+    ctx.save(); ctx.globalAlpha=0.55;
+    // Nib zone (orange) — near tip
+    ctx.fillStyle='#f97316'; ctx.shadowBlur=8; ctx.shadowColor='#f97316';
+    ctx.beginPath(); ctx.arc(s.x+pc*(-hl*0.72), s.y+ps*(-hl*0.72),3.5,0,Math.PI*2); ctx.fill();
+    // Center (green)
+    ctx.fillStyle='#22c55e'; ctx.shadowColor='#22c55e';
+    ctx.beginPath(); ctx.arc(s.x,s.y,3.5,0,Math.PI*2); ctx.fill();
+    // Back (blue) — near cap
+    ctx.fillStyle='#38bdf8'; ctx.shadowColor='#38bdf8';
+    ctx.beginPath(); ctx.arc(s.x+pc*(hl*0.72), s.y+ps*(hl*0.72),3.5,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
 }
 
 function drawAim(){
   if(!dragState?.active||!gameState||!isMyTurn()||isSimulating) return;
   const pen=gameState.pens?.[myPlayerId]; if(!pen?.alive) return;
-  const s=smoothPens[myPlayerId]||{x:pen.x,y:pen.y};
-  const{startX,startY,currentX,currentY}=dragState;
-  const ddx=currentX-startX,ddy=currentY-startY;
+  const s=smoothPens[myPlayerId]||{x:pen.x,y:pen.y,angle:pen.angle||0};
+  const{startX,startY,currentX,currentY,hitOffset}=dragState;
+  const ddx=currentX-startX, ddy=currentY-startY;
   const dlen=Math.hypot(ddx,ddy); if(dlen<4) return;
-  const sdx=-ddx/dlen,sdy=-ddy/dlen;
-  const power=Math.min(dlen*.10,MAX_POWER);
+  const sdx=-ddx/dlen, sdy=-ddy/dlen;
+  const power=Math.min(dlen*.10, MAX_POWER);
   const aLen=65+power*10;
-  const ax=s.x+sdx*aLen,ay=s.y+sdy*aLen;
+  const ax=s.x+sdx*aLen, ay=s.y+sdy*aLen;
+
   ctx.save();
+
+  // ── Hit point dot on the pen ─────────────────────────────────────────────
+  const ho = hitOffset||0;
+  const penCos=Math.cos(s.angle), penSin=Math.sin(s.angle);
+  const hitX = s.x + penCos*(ho*pen.width/2);
+  const hitY = s.y + penSin*(ho*pen.width/2);
+  // Classify hit zone
+  const hitLabel = ho < -0.35 ? 'NIB' : ho > 0.35 ? 'BACK' : 'MID';
+  const hitColor = ho < -0.35 ? '#f97316' : ho > 0.35 ? '#38bdf8' : '#22c55e';
+  ctx.fillStyle = hitColor;
+  ctx.shadowBlur=10; ctx.shadowColor=hitColor;
+  ctx.beginPath(); ctx.arc(hitX,hitY,5,0,Math.PI*2); ctx.fill();
+  ctx.shadowBlur=0;
+  ctx.fillStyle='rgba(255,255,255,.7)';
+  ctx.font='bold 9px "DM Mono",monospace';
+  ctx.textAlign='center'; ctx.textBaseline='bottom';
+  ctx.fillText(hitLabel, hitX, hitY-8);
+
+  // ── Spin preview arc ─────────────────────────────────────────────────────
+  // Estimate spin direction from torque: r × F (2D cross product)
+  const halfLen=pen.width/2;
+  const rx=penCos*ho*halfLen, ry=penSin*ho*halfLen;
+  const Fx=sdx*power, Fy=sdy*power;
+  const torque=rx*Fy-ry*Fx;
+  if(Math.abs(torque)>0.5){
+    const spinDir=torque>0?1:-1;
+    ctx.strokeStyle=hitColor; ctx.lineWidth=2; ctx.globalAlpha=0.5;
+    ctx.beginPath();
+    ctx.arc(s.x,s.y,pen.height/2+8,
+      spinDir>0?-Math.PI*0.7:0.2,
+      spinDir>0?0.2:-Math.PI*0.7, spinDir<0);
+    ctx.stroke();
+    // Arrow on arc
+    ctx.globalAlpha=0.7;
+    const arcEnd = spinDir>0 ? 0.2 : -Math.PI*0.7;
+    const ar=pen.height/2+8;
+    const arx=s.x+ar*Math.cos(arcEnd), ary=s.y+ar*Math.sin(arcEnd);
+    ctx.fillStyle=hitColor;
+    ctx.beginPath(); ctx.arc(arx,ary,3,0,Math.PI*2); ctx.fill();
+    ctx.globalAlpha=1;
+  }
+
+  // ── Shot arrow ───────────────────────────────────────────────────────────
   ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.lineWidth=2.5; ctx.setLineDash([8,5]);
   ctx.beginPath(); ctx.moveTo(s.x,s.y); ctx.lineTo(ax,ay); ctx.stroke(); ctx.setLineDash([]);
   const ang=Math.atan2(sdy,sdx);
@@ -899,19 +960,31 @@ function onDown(e){
   e.preventDefault(); Audio.resume();
   if(!isMyTurn()||isSimulating||!gameState) return;
   const pen=gameState.pens?.[myPlayerId]; if(!pen?.alive) return;
-  const{x,y}=coords(e); dragState={startX:x,startY:y,currentX:x,currentY:y,active:true};
+  const{x,y}=coords(e);
+
+  // Compute where on the pen the drag started (local coords along long axis)
+  // This determines spin: nib hit (-1) vs middle (0) vs back (+1)
+  const s=smoothPens[myPlayerId]||{x:pen.x,y:pen.y,angle:pen.angle||0};
+  const dx=x-s.x, dy=y-s.y;
+  const penCos=Math.cos(s.angle), penSin=Math.sin(s.angle);
+  // Project onto pen long axis
+  const localX = dx*penCos + dy*penSin;   // along pen length
+  const halfLen = pen.width/2;
+  const hitOffset = Math.max(-1.0, Math.min(1.0, localX/halfLen));
+
+  dragState={startX:x,startY:y,currentX:x,currentY:y,active:true,hitOffset};
 }
 function onMove(e){e.preventDefault();if(!dragState?.active)return;const{x,y}=coords(e);dragState.currentX=x;dragState.currentY=y;}
 function onUp(e){
   e.preventDefault(); if(!dragState?.active)return;
-  const{startX,startY,currentX,currentY}=dragState; dragState=null;
+  const{startX,startY,currentX,currentY,hitOffset}=dragState; dragState=null;
   if(!isMyTurn()||isSimulating||!gameState) return;
-  const ddx=currentX-startX,ddy=currentY-startY;
+  const ddx=currentX-startX, ddy=currentY-startY;
   const dlen=Math.hypot(ddx,ddy); if(dlen<10)return;
-  const dx=-ddx/dlen,dy=-ddy/dlen;
-  const power=Math.min(dlen*.10,MAX_POWER);
+  const dx=-ddx/dlen, dy=-ddy/dlen;
+  const power=Math.min(dlen*.10, MAX_POWER);
   Audio.playShoot(power);
-  socket.emit('shoot',{dx,dy,power});
+  socket.emit('shoot',{dx, dy, power, hit_offset: hitOffset||0});
   isSimulating=true; setMessage('Physics running…');
 }
 canvas.addEventListener('mousedown',onDown,{passive:false});

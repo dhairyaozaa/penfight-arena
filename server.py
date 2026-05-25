@@ -51,17 +51,23 @@ BEST_OF    = 3
 WIN_ROUNDS = math.ceil(BEST_OF/2)  # 2
 
 # ── Pen types ──────────────────────────────────────────────────────────────────
+# Per-pen physics properties:
+#   weight:     inertia and momentum (heavier = harder to move, hits harder)
+#   defense:    fraction of incoming impulse absorbed (0=none, 0.99=almost all)
+#   bounce:     restitution of the pen material itself (affects collisions with others)
+#   friction:   surface friction multiplier (lower = slides more freely)
 PEN_TYPES = {
-    'ballpoint':  {'width':120,'height':32,'weight':1.20,'defense':0.28,'color':'#3a3a3a','emoji':'🖊️','name':'Ballpoint'},
-    'gel':        {'width':100,'height':26,'weight':0.80,'defense':0.12,'color':'#00bcd4','emoji':'🖋️','name':'Gel Pen'},
-    'fountain':   {'width':140,'height':40,'weight':2.00,'defense':0.70,'color':'#8b4513','emoji':'✒️','name':'Fountain'},
-    'marker':     {'width':130,'height':38,'weight':1.70,'defense':0.42,'color':'#ff5722','emoji':'🖍️','name':'Marker'},
-    'highlighter':{'width':115,'height':34,'weight':0.90,'defense':0.18,'color':'#ffeb3b','emoji':'✏️','name':'Highlighter'},
-    'stylus':     {'width': 90,'height':22,'weight':2.40,'defense':0.88,'color':'#9c27b0','emoji':'📌','name':'Stylus'},
-    'quill':      {'width':155,'height':18,'weight':0.60,'defense':0.08,'color':'#f5f0e0','emoji':'🪶','name':'Quill'},
-    'crayon':     {'width':105,'height':44,'weight':1.40,'defense':0.35,'color':'#e91e63','emoji':'🎨','name':'Crayon'},
-    'whiteboard': {'width':145,'height':36,'weight':1.55,'defense':0.50,'color':'#43a047','emoji':'🖌️','name':'Whiteboard'},
-    'needle':     {'width': 75,'height':12,'weight':3.00,'defense':0.95,'color':'#b0bec5','emoji':'📍','name':'Needle'},
+    # name         w    h    mass  def   bounce  friction  color       emoji
+    'ballpoint':  {'width':120,'height':32,'weight':1.20,'defense':0.28,'bounce':0.55,'friction':0.97,'color':'#3a3a3a','emoji':'🖊️','name':'Ballpoint'},
+    'gel':        {'width':100,'height':26,'weight':0.80,'defense':0.12,'bounce':0.65,'friction':0.98,'color':'#00bcd4','emoji':'🖋️','name':'Gel Pen'},
+    'fountain':   {'width':140,'height':40,'weight':2.00,'defense':0.70,'bounce':0.40,'friction':0.95,'color':'#8b4513','emoji':'✒️','name':'Fountain'},
+    'marker':     {'width':130,'height':38,'weight':1.70,'defense':0.42,'bounce':0.50,'friction':0.96,'color':'#ff5722','emoji':'🖍️','name':'Marker'},
+    'highlighter':{'width':115,'height':34,'weight':0.90,'defense':0.18,'bounce':0.60,'friction':0.97,'color':'#ffeb3b','emoji':'✏️','name':'Highlighter'},
+    'stylus':     {'width': 90,'height':22,'weight':2.40,'defense':0.88,'bounce':0.82,'friction':0.99,'color':'#9c27b0','emoji':'📌','name':'Stylus'},
+    'quill':      {'width':155,'height':18,'weight':0.60,'defense':0.08,'bounce':0.30,'friction':0.96,'color':'#f5f0e0','emoji':'🪶','name':'Quill'},
+    'crayon':     {'width':105,'height':44,'weight':1.40,'defense':0.35,'bounce':0.25,'friction':0.93,'color':'#e91e63','emoji':'🎨','name':'Crayon'},
+    'whiteboard': {'width':145,'height':36,'weight':1.55,'defense':0.50,'bounce':0.55,'friction':0.96,'color':'#43a047','emoji':'🖌️','name':'Whiteboard'},
+    'needle':     {'width': 75,'height':12,'weight':3.00,'defense':0.95,'bounce':0.90,'friction':0.99,'color':'#b0bec5','emoji':'📍','name':'Needle'},
 }
 
 # ── Powerup definitions ────────────────────────────────────────────────────────
@@ -202,41 +208,59 @@ def sat_test(pa,pb):
     return True,best_ov,best_ax,(cpx,cpy)
 
 def resolve_collision(pa,pb,ov,axis,contact,e):
-    # Ghost: pass through
-    if pa.get('ghost_charges',0)>0: pa['ghost_charges']-=1; return 0.0
-    if pb.get('ghost_charges',0)>0: pb['ghost_charges']-=1; return 0.0
+    """
+    Impulse-based collision resolution.
+    Ghost:  pen with ghost_charges passes through — no impulse, no separation
+    Shield: pen with shield_charges absorbs incoming impulse (defense→0.99 once)
+    """
+    # Ghost — either pen passes through, consume charge
+    if pa.get('ghost_charges',0)>0:
+        pa['ghost_charges']-=1; return 0.0
+    if pb.get('ghost_charges',0)>0:
+        pb['ghost_charges']-=1; return 0.0
 
-    total_m=pa['weight']+pb['weight']
-    pa['x']-=axis[0]*ov*(pb['weight']/total_m)
-    pa['y']-=axis[1]*ov*(pb['weight']/total_m)
-    pb['x']+=axis[0]*ov*(pa['weight']/total_m)
-    pb['y']+=axis[1]*ov*(pa['weight']/total_m)
+    # Positional correction (weighted by mass so lighter pen moves more)
+    total_m = pa['weight']+pb['weight']
+    pa['x'] -= axis[0]*ov*(pb['weight']/total_m)
+    pa['y'] -= axis[1]*ov*(pb['weight']/total_m)
+    pb['x'] += axis[0]*ov*(pa['weight']/total_m)
+    pb['y'] += axis[1]*ov*(pa['weight']/total_m)
 
     Ia=pa['weight']*(pa['width']**2+pa['height']**2)/12.
     Ib=pb['weight']*(pb['width']**2+pb['height']**2)/12.
     ma,mb=pa['weight'],pb['weight']
     rax,ray=contact[0]-pa['x'],contact[1]-pa['y']
     rbx,rby=contact[0]-pb['x'],contact[1]-pb['y']
-    vac=(pa['vx']-pa['angularVelocity']*ray,pa['vy']+pa['angularVelocity']*rax)
-    vbc=(pb['vx']-pb['angularVelocity']*rby,pb['vy']+pb['angularVelocity']*rbx)
+    vac=(pa['vx']-pa['angularVelocity']*ray, pa['vy']+pa['angularVelocity']*rax)
+    vbc=(pb['vx']-pb['angularVelocity']*rby, pb['vy']+pb['angularVelocity']*rbx)
     rvn=(vac[0]-vbc[0])*axis[0]+(vac[1]-vbc[1])*axis[1]
-    if rvn>=0: return 0.
+    if rvn>=0: return 0.   # already separating
 
-    ran=rax*axis[1]-ray*axis[0]; rbn=rbx*axis[1]-rby*axis[0]
+    ran=rax*axis[1]-ray*axis[0]
+    rbn=rbx*axis[1]-rby*axis[0]
     inv=1/ma+1/mb+ran**2/Ia+rbn**2/Ib
-    j=-(1.+e)*rvn/inv
+    # Use the average of both pens' material bounce, blended with map restitution
+    e_eff = (pa.get('bounce',0.5) + pb.get('bounce',0.5)) * 0.5 * (0.5 + e*0.5)
+    j=-(1.+e_eff)*rvn/inv
 
-    # Shield: absorb all incoming impulse this once
-    da=0.99 if pb.get('shield_charges',0)>0 else pa['defense']
-    db=0.99 if pa.get('shield_charges',0)>0 else pb['defense']
-    if pb.get('shield_charges',0)>0: pb['shield_charges']-=1
+    # Shield: the SHIELDED pen absorbs impact (its own defense becomes 0.99)
+    # pa receives impulse FROM pb — so pa's shield blocks what pa receives
+    da = 0.99 if pa.get('shield_charges',0)>0 else pa['defense']
+    # pb receives impulse FROM pa — so pb's shield blocks what pb receives
+    db = 0.99 if pb.get('shield_charges',0)>0 else pb['defense']
+    # Consume shield charges
     if pa.get('shield_charges',0)>0: pa['shield_charges']-=1
+    if pb.get('shield_charges',0)>0: pb['shield_charges']-=1
 
-    sa=(1.-da); jxa=j*axis[0]*sa/ma; jya=j*axis[1]*sa/ma
+    # Apply impulse to A (receives from B, scaled by A's own defense)
+    sa=(1.-da)
+    jxa=j*axis[0]*sa/ma; jya=j*axis[1]*sa/ma
     pa['vx']+=jxa; pa['vy']+=jya
     pa['angularVelocity']+=(rax*jya-ray*jxa)*sa/Ia*ma
 
-    sb=(1.-db); jxb=-j*axis[0]*sb/mb; jyb=-j*axis[1]*sb/mb
+    # Apply impulse to B (opposite direction, scaled by B's own defense)
+    sb=(1.-db)
+    jxb=-j*axis[0]*sb/mb; jyb=-j*axis[1]*sb/mb
     pb['vx']+=jxb; pb['vy']+=jyb
     pb['angularVelocity']+=(rbx*jyb-rby*jxb)*sb/Ib*mb
     return abs(j)
@@ -288,26 +312,40 @@ def check_powerup_pickup(pen,game):
     return -1
 
 def apply_powerup(pen,pu_type):
-    """Apply powerup immediately to pen state."""
+    """Apply powerup to pen state. Visible immediately on HUD."""
     pen['active_powerup']=pu_type
     if pu_type=='heavy':
-        pen['weight']=pen['base_weight']*2.0
+        pen['weight']=pen['base_weight']*2.5   # more dramatic
         pen['powerup_turns']=3
     elif pu_type=='ghost':
         pen['ghost_charges']=1
     elif pu_type=='shield':
         pen['shield_charges']=1
-    # speed_boost and magnet are consumed at shoot time
+    elif pu_type in ('speed_boost','magnet'):
+        pen['powerup_grace']=2   # stays visible for up to 2 turns if not used
 
 def decay_powerups(game):
     """Called after each turn to tick down turn-based powerups."""
     for pen in game['pens'].values():
         if not pen['alive']: continue
+        # Heavy: tick down turn counter
         if pen.get('active_powerup')=='heavy' and pen.get('powerup_turns',0)>0:
             pen['powerup_turns']-=1
             if pen['powerup_turns']<=0:
                 pen['weight']=pen['base_weight']
                 pen['active_powerup']=None
+        # Ghost/Shield: clear active_powerup label once charges consumed
+        elif pen.get('active_powerup') in ('ghost','shield'):
+            if pen.get('ghost_charges',0)<=0 and pen.get('shield_charges',0)<=0:
+                pen['active_powerup']=None
+        # Speed_boost / magnet: clear if still set (should have been consumed at shoot)
+        elif pen.get('active_powerup') in ('speed_boost','magnet'):
+            # Give a 1-turn grace period then auto-clear
+            grace = pen.get('powerup_grace',1)
+            if grace<=0:
+                pen['active_powerup']=None
+            else:
+                pen['powerup_grace']=grace-1
 
 def magnet_repulse(shooter,pens,game):
     """Blast all other alive pens away from shooter."""
@@ -329,13 +367,29 @@ def step(game):
 
     for pid in alive:
         p=game['pens'][pid]
-        p['x']+=p['vx']; p['y']+=p['vy']
-        p['angle']+=p['angularVelocity']
-        p['vx']*=fl; p['vy']*=fl; p['angularVelocity']*=fa
-        if abs(p['vx'])<0.002: p['vx']=0.
-        if abs(p['vy'])<0.002: p['vy']=0.
-        if abs(p['angularVelocity'])<0.001: p['angularVelocity']=0.
-        if portals: apply_portals(p,portals)
+
+        # Integrate position and angle
+        p['x'] += p['vx']
+        p['y'] += p['vy']
+        p['angle'] += p['angularVelocity']
+
+        # Surface friction: linear and angular decay separately
+        # Per-pen friction is a surface-texture multiplier
+        pf_lin = p.get('friction', 0.97)   # surface grip
+        # Angular friction is LESS than linear (pens spin more freely than they slide)
+        # This is realistic: rolling/spinning has less contact than sliding
+        pf_ang = 0.5 + pf_lin * 0.5       # maps [0.93..0.99] → [0.965..0.995]
+
+        p['vx'] *= fl * pf_lin
+        p['vy'] *= fl * pf_lin
+        p['angularVelocity'] *= fa * pf_ang
+
+        # Hard zero small values
+        if abs(p['vx']) < 0.001: p['vx'] = 0.
+        if abs(p['vy']) < 0.001: p['vy'] = 0.
+        if abs(p['angularVelocity']) < 0.0005: p['angularVelocity'] = 0.
+
+        if portals: apply_portals(p, portals)
 
     # Pen–pen collisions (3 iterations)
     for _ in range(3):
@@ -382,9 +436,13 @@ def step(game):
     game['powerup_events']=powerup_events
 
 def all_idle(pens):
-    return all(math.hypot(p['vx'],p['vy'])<=IDLE_SPEED and
-               abs(p['angularVelocity'])<=IDLE_SPEED
-               for p in pens.values() if p['alive'])
+    IDLE_ANG = 0.003   # radians/frame — visibly stopped spinning
+    IDLE_LIN = IDLE_SPEED
+    return all(
+        math.hypot(p['vx'], p['vy']) <= IDLE_LIN and
+        abs(p['angularVelocity'])    <= IDLE_ANG
+        for p in pens.values() if p['alive']
+    )
 
 def serialize(game,room):
     skip={'oob_frames','base_weight'}
@@ -610,36 +668,79 @@ def on_shoot(data):
     if game['phase']!='aiming':
         emit('error',{'msg':'Wait for physics'}); return
 
-    dx=float(data.get('dx',0)); dy=float(data.get('dy',0))
-    power=min(float(data.get('power',0)),MAX_POWER_BASE)
-    pscale=MAPS[game['map']]['power_scale']
+    dx       = float(data.get('dx', 0))
+    dy       = float(data.get('dy', 0))
+    power    = min(float(data.get('power', 0)), MAX_POWER_BASE)
+    # hit_offset: normalised -1..+1 along pen long axis
+    # -1 = near nib (tip), 0 = middle, +1 = near back (cap)
+    hit_offset = float(data.get('hit_offset', 0.0))
+    hit_offset = max(-1.0, min(1.0, hit_offset))
 
-    # Apply speed_boost powerup
-    pen=game['pens'].get(pid)
+    pscale = MAPS[game['map']]['power_scale']
+
+    pen = game['pens'].get(pid)
     if not pen or not pen['alive']: return
-    if pen.get('active_powerup')=='speed_boost':
-        power=min(power*1.8, MAX_POWER_BASE*1.8)
-        pen['active_powerup']=None
 
-    power*=pscale
-    mag=math.hypot(dx,dy)
-    if mag<0.001: return
-    dx/=mag; dy/=mag
+    mag = math.hypot(dx, dy)
+    if mag < 0.001: return
+    dx /= mag; dy /= mag
 
-    # Magnet repulse fires at shoot moment
-    magnet_evs=[]
-    if pen.get('active_powerup')=='magnet':
-        magnet_evs=magnet_repulse(pen,game['pens'],game)
-        pen['active_powerup']=None
+    # ── Powerup effects (check BEFORE clearing) ─────────────────────────────
+    magnet_evs = []
 
-    pen['vx']=dx*power; pen['vy']=dy*power
-    pen_ax=math.cos(pen['angle']); pen_ay=math.sin(pen['angle'])
-    pen['angularVelocity']=(dx*pen_ay-dy*pen_ax)*0.18*power*0.06
+    if pen.get('active_powerup') == 'speed_boost':
+        power = min(power * 1.85, MAX_POWER_BASE * 1.85)
+        pen['active_powerup'] = None
+        pen['powerup_grace']  = 0
 
-    game['phase']='simulating'
-    game['collision_events']=magnet_evs
-    game['powerup_events']=[]
-    threading.Thread(target=run_physics,args=(info['room'],),daemon=True).start()
+    if pen.get('active_powerup') == 'magnet':
+        magnet_evs = magnet_repulse(pen, game['pens'], game)
+        pen['active_powerup'] = None
+        pen['powerup_grace']  = 0
+
+    power *= pscale
+
+    # ── Rigid-body off-center impulse ───────────────────────────────────────
+    #
+    # Treat the drag as an impulse J applied at the hit point on the pen.
+    # hit_offset ∈ [-1,+1]: -1 = nib end, 0 = center, +1 = cap end
+    #
+    # Linear impulse at center of mass:
+    #   Δvx = J*dx / m,  Δvy = J*dy / m
+    # Angular impulse:
+    #   Δω = (r × J) / I   where r is hit-point offset from center
+    #   In 2D: r × J = rx*Jy - ry*Jx
+    #
+    # The impulse magnitude J = power (already scaled by map)
+    # dx,dy is the unit direction vector
+
+    pen_cos = math.cos(pen['angle'])
+    pen_sin = math.sin(pen['angle'])
+
+    # Hit point in world space (offset along pen's long axis)
+    half_len = pen['width'] / 2.0
+    rx = pen_cos * hit_offset * half_len
+    ry = pen_sin * hit_offset * half_len
+
+    m  = pen['weight']
+    I  = m * (pen['width']**2 + pen['height']**2) / 12.0
+
+    # Impulse components
+    Jx = dx * power
+    Jy = dy * power
+
+    # Linear velocity (same formula as center-of-mass, impulse/mass)
+    pen['vx'] = Jx / m
+    pen['vy'] = Jy / m
+
+    # Angular velocity from torque at hit point
+    # 2D cross product: r × J = rx*Jy - ry*Jx
+    pen['angularVelocity'] = (rx * Jy - ry * Jx) / I
+
+    game['phase'] = 'simulating'
+    game['collision_events'] = magnet_evs
+    game['powerup_events'] = []
+    threading.Thread(target=run_physics, args=(info['room'],), daemon=True).start()
 
 @socketio.on('skip_physics')
 def on_skip():
